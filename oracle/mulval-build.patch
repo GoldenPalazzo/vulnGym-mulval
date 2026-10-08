@@ -1,0 +1,390 @@
+--- mulval-virgin/src/attack_graph/attack_graph.cpp	2012-02-03 21:38:04.000000000 +0000
++++ mulval/src/attack_graph/attack_graph.cpp	2026-09-28 12:15:19.305313010 +0000
+@@ -94,7 +94,7 @@
+ 
+ int size_mp = 10;
+ 
+-graph_data data(mp, size_mp); 
++graph_data gdata(mp, size_mp); 
+ 
+ // initialize static members
+ //Fact *graph_data::goal =0;
+@@ -176,7 +176,7 @@
+     metric = atof(m);
+   }
+   else{
+-    metric = data.metrics[m];
++    metric = gdata.metrics[m];
+   }
+   
+   fact = f; 
+@@ -248,7 +248,7 @@
+ 	      metrics[rulenum] = atof(ruleMetricString);
+ 	    }
+ 	    else{
+-	      metrics[rulenum] = data.metrics[ruleMetricString];
++	      metrics[rulenum] = gdata.metrics[ruleMetricString];
+ 	    }
+ 	  }
+ 	  else{
+@@ -650,7 +650,7 @@
+   /* postprocessing the node */
+   switch(alg){
+   case reAssignNodeNum:
+-    //    cerr << nodeNum << ": " << data.ruleList.rules[rulenum] << endl;
++    //    cerr << nodeNum << ": " << gdata.ruleList.rules[rulenum] << endl;
+     break;
+   }
+   return;
+@@ -781,7 +781,7 @@
+    switch (mode) {
+       case  TEXT:
+         cout << indentation << "RULE " << rulenum << " : " 
+-             << data.ruleList.rules[rulenum] << endl;
++             << gdata.ruleList.rules[rulenum] << endl;
+       break;
+   
+       case HTML:
+@@ -799,7 +799,7 @@
+    switch (mode) {
+       case  TEXT:
+         cout << indentation << "(" << nodeNum << ") " << "RULE " << rulenum << " : " 
+-             << data.ruleList.rules[rulenum] << endl;
++             << gdata.ruleList.rules[rulenum] << endl;
+       break;
+   
+       case HTML:
+@@ -843,7 +843,7 @@
+ bool AndNode::Render2(arcLabelMode mode)
+ {
+    ostringstream temp;
+-   temp << "RULE " << rulenum  << " (" << data.ruleList.rules[rulenum] << ")";
++   temp << "RULE " << rulenum  << " (" << gdata.ruleList.rules[rulenum] << ")";
+    outputVertex(temp.str(), metric);
+    for(Arc *arc=outGoing.gethead(); arc != NULL; arc=outGoing.getnext()) {
+      if (arc->getDst()->Render2(mode))
+@@ -1131,7 +1131,7 @@
+ 
+    //dump_tables();
+    //
+-   if (data.goals.size() == 0){
++   if (gdata.goals.size() == 0){
+      cerr << "No attack paths found.\n";
+      return 1;
+    }
+@@ -1165,7 +1165,7 @@
+    // loop through all the unique trace steps 
+    traceStepMap::iterator i,j;
+    traceStepMap *Map;
+-   Map = &data.all_trace_steps.traceSteps;
++   Map = &gdata.all_trace_steps.traceSteps;
+    for( i=Map->begin(); i != Map->end(); )
+    {
+       string ts_key = i->first;
+@@ -1182,27 +1182,27 @@
+       Map->erase( j );
+ 
+       string fact_key = f->key;
+-      OrNode *orNode = data.all_or_nodes.addOrNode(fact_key, f);
++      OrNode *orNode = gdata.all_or_nodes.addOrNode(fact_key, f);
+       AndNode *andNode = new AndNode(num, metric);  
+ 
+       if( andNode == NULL || orNode == NULL) {
+           cerr << "Failed to create new node\n";
+           return -1;
+       }
+-      data.all_and_nodes.nodeList.add( *andNode );
++      gdata.all_and_nodes.nodeList.add( *andNode );
+        graph_data::nodeCount++;
+        andNode->nodeNum = graph_data::nodeCount;
+          andNode->parentNodeNum = orNode->nodeNum;
+       orNode->outGoing.add(*(new Arc(orNode, andNode)));
+-      for( Fact *fa= c->factList.gethead(); fa >0; fa = c->factList.getnext()) {
++      for( Fact *fa= c->factList.gethead(); fa != 0; fa = c->factList.getnext()) {
+            fact_key = fa->key; 
+            Node *newNode;
+            Type factType = fa->predicate->type; 
+            if( factType == primitive) {
+-               newNode = data.all_leaf_nodes.addLeafNode(fact_key, fa); 
++               newNode = gdata.all_leaf_nodes.addLeafNode(fact_key, fa); 
+            }
+            else if( factType == derived) {
+-               newNode = data.all_or_nodes.addOrNode(fact_key, fa); 
++               newNode = gdata.all_or_nodes.addOrNode(fact_key, fa); 
+            }
+ 	   if (factType == primitive || factType == derived){
+ 	     andNode->outGoing.add(*(new Arc(andNode, newNode)));
+@@ -1214,11 +1214,11 @@
+ 
+    //Populating the head nodes
+    NodeMap::iterator k;
+-   for (k = data.goals.begin(); k != data.goals.end(); k++) {
++   for (k = gdata.goals.begin(); k != gdata.goals.end(); k++) {
+      string fact_key = k->first;
+-     Node *headNode = data.all_or_nodes.nodes[fact_key];
++     Node *headNode = gdata.all_or_nodes.nodes[fact_key];
+      if (headNode != NULL){
+-       data.goals[fact_key] = headNode;
++       gdata.goals[fact_key] = headNode;
+      }
+      else{
+        cerr << "Warning: attack goal "<<fact_key<<" was not computed."<<endl;
+@@ -1231,17 +1231,17 @@
+      break;
+      /*
+    case unFounded: 
+-     data.headNode->RemoveUnfoundedEdges();
++     gdata.headNode->RemoveUnfoundedEdges();
+      break;
+      */
+    case nonSimple:
+-     for (k = data.goals.begin(); k != data.goals.end(); k++) {
++     for (k = gdata.goals.begin(); k != gdata.goals.end(); k++) {
+        Node *headNode = k->second;
+        if (headNode != NULL){
+ 	 headNode->allSimplePaths();
+        }
+      }
+-     for (k = data.goals.begin(); k != data.goals.end(); k++) {
++     for (k = gdata.goals.begin(); k != gdata.goals.end(); k++) {
+        Node *headNode = k->second;
+        if (headNode != NULL){
+ 	 headNode->pruneUselessEdges();
+@@ -1255,7 +1255,7 @@
+    currentCounter++;
+    currentNodeNum=1;
+    currentArcNum = 1;
+-   for (k = data.goals.begin(); k != data.goals.end(); k++) {
++   for (k = gdata.goals.begin(); k != gdata.goals.end(); k++) {
+      Node *headNode = k->second;
+      if (headNode != NULL){
+        headNode->dfs(reAssignNodeNum);
+@@ -1265,7 +1265,7 @@
+    //Assign metrics for AssetRank
+    if (useMetrics){
+      cerr << "Computing metrics..." << endl;
+-     for (k = data.goals.begin(); k != data.goals.end(); k++) {
++     for (k = gdata.goals.begin(); k != gdata.goals.end(); k++) {
+        Node *headNode = k->second;
+        if (headNode != NULL){
+ 	 headNode->bestMetric();
+@@ -1279,7 +1279,7 @@
+ int build_visual(bool arc_and_node)
+ {
+   NodeMap::iterator k;
+-  for (k = data.goals.begin(); k != data.goals.end(); k++) {
++  for (k = gdata.goals.begin(); k != gdata.goals.end(); k++) {
+     string fact_key = k->first;
+     Node *headNode = k->second;
+     if (headNode != NULL){
+@@ -1303,7 +1303,7 @@
+   NodeMap::iterator k;
+   Node *headNode;
+ 
+-  for (k = data.goals.begin(); k != data.goals.end(); k++) {
++  for (k = gdata.goals.begin(); k != gdata.goals.end(); k++) {
+      headNode = k->second;
+      if(headNode != NULL) {
+        headNode->TransformToCNF(0);
+@@ -1356,22 +1356,22 @@
+ //void dump_tables(void)
+ //{
+ //      /*
+-//      cout << "nodeCount=" << data.nodeCount << endl;
+-//      cout << "goal: " << data.goal->key << endl;
++//      cout << "nodeCount=" << gdata.nodeCount << endl;
++//      cout << "goal: " << gdata.goal->key << endl;
+ 
+-//      int rul =  data.headNode->rulenum;
++//      int rul =  gdata.headNode->rulenum;
+ 
+-//      cout << "headNode: " << data.headNode->label->key  << endl;
++//      cout << "headNode: " << gdata.headNode->label->key  << endl;
+ 
+ //      cout << "RULES:\n";
+ 
+-//      for ( int i=0; i<= data.ruleList.count; i++ ) {
++//      for ( int i=0; i<= gdata.ruleList.count; i++ ) {
+ 
+ //        cout << i << " " ; 
+ 
+-//        if( data.ruleList.rules[ i ] != 0 ) {  
++//        if( gdata.ruleList.rules[ i ] != 0 ) {  
+ 
+-//          cout <<  data.ruleList.rules[ i ] ;
++//          cout <<  gdata.ruleList.rules[ i ] ;
+ 
+ //        }
+ 
+@@ -1401,7 +1401,7 @@
+ 
+ //      cout << "\nUnique FACTS:\n"; 
+ 
+-//      Fmap =  &data.all_facts.facts;
++//      Fmap =  &gdata.all_facts.facts;
+ 
+ //      cout << Fmap->size() << endl;
+ 
+@@ -1417,7 +1417,7 @@
+ 
+ //      cout << "\nUnique Trace Steps: \n ";
+ 
+-//      Smap =  &data.all_trace_steps.traceSteps;
++//      Smap =  &gdata.all_trace_steps.traceSteps;
+ 
+ //      cout << Smap->size() << endl;
+ 
+@@ -1451,7 +1451,7 @@
+ 
+ //      cout << "\nOR nodes:\n"; 
+ 
+-//      Nmap =  &data.all_or_nodes.nodes;
++//      Nmap =  &gdata.all_or_nodes.nodes;
+ 
+ //      for (Ni = Nmap->begin() ; Ni != Nmap->end(); Ni++) {
+ 
+@@ -1477,7 +1477,7 @@
+ 
+ //      cout << "\nAND nodes:\n"; 
+ 
+-//      Queue<Node> nq =  data.all_and_nodes.nodeList;
++//      Queue<Node> nq =  gdata.all_and_nodes.nodeList;
+ 
+ //      for (Node *no = nq.gethead() ; no >0 ; no = nq.getnext()) {
+ 
+@@ -1505,7 +1505,7 @@
+ 
+ //      cout << "\nLEAF nodes:\n"; 
+ 
+-//      Nmap =  &data.all_leaf_nodes.nodes;
++//      Nmap =  &gdata.all_leaf_nodes.nodes;
+ 
+ //      for (Ni = Nmap->begin() ; Ni != Nmap->end(); Ni++) {
+ 
+--- mulval-virgin/src/attack_graph/graphit.l	2012-02-03 21:38:04.000000000 +0000
++++ mulval/src/attack_graph/graphit.l	2026-09-28 12:16:02.758328760 +0000
+@@ -1,8 +1,8 @@
+ %{
+ #include <stdio.h>
+-#include "y.tab.cpp.h"
++#include "graphit.tab.h"
+ #define YYSTYPE char * 
+-YYSTYPE* mylval;
++extern YYSTYPE* mylval;
+ FILE **my_ptr = &yyin; 
+ %}
+ 
+--- mulval-virgin/src/attack_graph/graphit.y	2012-02-03 21:38:04.000000000 +0000
++++ mulval/src/attack_graph/graphit.y	2026-09-28 12:15:19.306313009 +0000
+@@ -21,7 +21,7 @@
+        }
+     }
+ 
+-    extern graph_data data;
++    extern graph_data gdata;
+ 
+     #define MAXLEN 1000
+     #define CVSSAC_PREFIX "cvss_ac_"
+@@ -76,18 +76,18 @@
+ 
+ predicate_type: PRIMITIVE '(' ATOM ',' ATOM ')' '.' END_LINE
+                      {
+-                        data.all_predicates.add_predicate( $3, atoi($5), 
++                        gdata.all_predicates.add_predicate( $3, atoi($5), 
+                                       primitive);
+                      }
+               | DERIVED   '(' ATOM ',' ATOM ')' '.' END_LINE
+                      {
+-                        data.all_predicates.add_predicate( $3, atoi($5), 
++                        gdata.all_predicates.add_predicate( $3, atoi($5), 
+                                      derived);
+                      }
+ 
+               | META   '(' ATOM ',' ATOM ')' '.' END_LINE
+                      {
+-                        data.all_predicates.add_predicate( $3, atoi($5), 
++                        gdata.all_predicates.add_predicate( $3, atoi($5), 
+                                      meta);
+                      }
+ 
+@@ -125,11 +125,11 @@
+            #endif
+ 
+            // save unique trace step
+-           data.all_trace_steps.add_step( trace_step_key,
++           gdata.all_trace_steps.add_step( trace_step_key,
+ 	   			  rulenum, metric_str, fact1, factQ);
+ 
+            // save unique rule
+-           data.ruleList.add_rule(rulenum, desc_str);
++           gdata.ruleList.add_rule(rulenum, desc_str);
+ 
+            #ifdef DEBUG 
+            printf("possible_duplicate_trace_step(because(%s)).\n\n",
+@@ -202,7 +202,7 @@
+                 #ifdef DEBUG 
+                 printf("attack(%s).\n\n",fact1_str);
+                 #endif
+-		data.goals[fact1_str] = NULL;
++		gdata.goals[fact1_str] = NULL;
+                 fact1_str[0] = 0;
+                 lastFact=0;
+ 		fact1=0;
+@@ -308,11 +308,11 @@
+ 
+                     // get the pointer to correct predicate 
+                     Predicate *p = 
+-                     data.all_predicates.add_predicate( $1, arg_count, undef);
++                     gdata.all_predicates.add_predicate( $1, arg_count, undef);
+ 
+                     // add this fact to the fact list, unless 
+                     // it is already in the list. 
+-                    lastFact=data.all_facts.add_fact( fact_ptr,p, arglist_p);
++                    lastFact=gdata.all_facts.add_fact( fact_ptr,p, arglist_p);
+                     if( first_fact) fact1 = lastFact;
+ 
+                     // empty the list for building next fact string
+--- mulval-virgin/src/attack_graph/Makefile	2012-02-03 21:38:04.000000000 +0000
++++ mulval/src/attack_graph/Makefile	2026-09-28 12:15:19.304313010 +0000
+@@ -1,21 +1,20 @@
+-default: install
+-
+-attack_graph: attack_graph.cpp attack_graph.h Queue.h lex.yy.o y.tab.cpp
+-	g++ -g -DLINUX -Wno-deprecated lex.yy.o y.tab.cpp attack_graph.cpp -o attack_graph
+-
+-lex.yy.c: graphit.l
+-	lex  -olex.yy.c graphit.l 
+-
+-lex.yy.o: lex.yy.c y.tab.cpp.h
+-	gcc -g -c lex.yy.c -o lex.yy.o
+-
+-y.tab.cpp y.tab.cpp.h: graphit.y attack_graph.h 
+-	bison -dv graphit.y
+-	mv graphit.tab.c y.tab.cpp
+-	mv graphit.tab.h y.tab.cpp.h
+-
+-install: attack_graph
+-	cp attack_graph ../../bin/
+-
+-clean:
+-	rm -f y.tab.cpp y.tab.cpp.h lex.yy.c *.o attack_graph *.output
++default: install
++
++attack_graph: attack_graph.cpp attack_graph.h Queue.h lex.yy.o y.tab.cpp
++	g++ -g -DLINUX -Wno-deprecated lex.yy.o y.tab.cpp attack_graph.cpp -o attack_graph
++
++lex.yy.c: graphit.l
++	lex  -olex.yy.c graphit.l 
++
++lex.yy.o: lex.yy.c graphit.tab.h
++	gcc -g -c lex.yy.c -o lex.yy.o
++
++y.tab.cpp graphit.tab.h: graphit.y attack_graph.h 
++	bison -dv graphit.y
++	mv graphit.tab.c y.tab.cpp
++	
++install: attack_graph
++	cp attack_graph ../../bin/
++
++clean:
++	rm -f y.tab.cpp graphit.tab.h lex.yy.c *.o attack_graph *.output
