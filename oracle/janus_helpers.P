@@ -1,0 +1,69 @@
+/* janus_helpers.P
+   Predicati di appoggio chiamati da Python tramite Janus (vedi mulval_janus.py).
+
+   PERCHÉ ESISTONO: con XSB compilato in batched scheduling (necessario)
+   jns.query_once va in segmentation fault, perché Janus avvolge ogni query testuale in
+   predicati tabled suoi (jns_table/1, parse_query_string/3). Qui chiamiamo direttamente
+   predicati già caricati, senza passare dal parser di Janus.
+
+   CONVENZIONE (scelta per non far crescere la memoria, vedi mulval_janus.py):
+   - i predicati che "fanno" qualcosa non restituiscono nulla e si chiamano con jns.cmd,
+     che a fine chiamata riporta gli stack di XSB com'erano;
+   - l'unico predicato che restituisce dati (oh_answer) non prende argomenti e si chiama con
+     jns.apply_once(..., truth_vals=PLAIN_TRUTHVALS): apply_once chiama oh_answer(Out) e
+     restituisce Out a Python.
+*/
+
+:- import member/2 from basics.
+
+/* Carica MulVAL come fa graph_gen.sh (run.P), ma senza file di input e senza attack graph.
+   RunningRules = interaction_rules.P + vulngym_rules.P concatenati. Va chiamato con la cwd
+   in una cartella scrivibile: generate_dynamic_decl scrive dynamic_decl.gen lì. */
+oh_load(MulvalRoot, RunningRules) :-
+    atom_concat(MulvalRoot, '/lib/libmulval', L1), consult(L1),
+    atom_concat(MulvalRoot, '/src/analyzer/translate', L2), consult(L2),
+    atom_concat(MulvalRoot, '/src/analyzer/attack_trace', L3), consult(L3),
+    atom_concat(MulvalRoot, '/src/analyzer/auxiliary', L4), consult(L4),
+    dynamic(meta/1),
+    load_dyn(RunningRules),
+    atom_concat(MulvalRoot, '/src/analyzer/advances_notrim.P', Adv), load_dyn(Adv),
+    assert(cvss(_, none)),
+    generate_dynamic_decl('dynamic_decl.gen'),
+    load_dyn('dynamic_decl.gen'),
+    translate_interaction_rules(stripExplanation).
+
+/* L = [[hacl, internet, '3', any, any], [vulExists, '3', 'CVE-...', prod], ...]
+   Ogni elemento [F|Args] diventa il termine F(Args...) con =.. (univ) e viene asserito.
+   "member(...), ..., fail ; true" è un ciclo guidato dal fallimento: fail fa tornare
+   member/2 all'elemento successivo; finita la lista si prende il ramo "; true". */
+oh_assert_list(L) :-
+    ( member([F|A], L), T =.. [F|A], assert(T), fail ; true ).
+
+/* L = [[vulExists, 3], [nodeOff, 1], ...]: cancella TUTTE le clausole di quei predicati.
+   retractall(vulExists(_,_,_)) invece di un retract per fatto: retract(Fatto) ripetuto
+   centinaia di migliaia di volte fa crescere lo spazio delle tabelle di XSB senza mai
+   liberarlo (~3 KB per stato), retractall no. Va usato solo su predicati che sono puri
+   fatti (primitive): su un predicato con regole cancellerebbe anche le regole. */
+oh_retract_preds(L) :-
+    ( member([F, N], L), functor(T, F, N), retractall(T), fail ; true ).
+
+/* Svuota tutte le tabelle: dopo assert/retract le risposte memorizzate non valgono più. */
+oh_abolish :- abolish_all_tables.
+
+/* Le cinque interrogazioni in una sola chiamata: per ciascun predicato la lista degli host
+   H per cui è derivabile (per execCode qualunque privilegio). Stesso ordine di
+   mulval_janus.PREDICATES.
+   Gli host sono atomi numerici ('12'): li restituiamo come interi perché Janus non libera mai
+   il risultato in Python, e un intero piccolo in Python è un oggetto condiviso, mentre ogni
+   stringa sarebbe un oggetto nuovo che resta in memoria per sempre. */
+oh_answer([L1, L2, L3, L4, L5]) :-
+    findall(N, (execCode(H, _), host_id(H, N)), L1),
+    findall(N, (remoteControl(H), host_id(H, N)), L2),
+    findall(N, (hasCredentials(H), host_id(H, N)), L3),
+    findall(N, (dataCompromised(H), host_id(H, N)), L4),
+    findall(N, (dos(H), host_id(H, N)), L5).
+
+/* '12' -> 12; un host non numerico (es. internet) resta atomo. number_codes lancia
+   un'eccezione se i caratteri non formano un numero: catch la trasforma in fallimento. */
+host_id(H, N) :- atom(H), atom_codes(H, Cs), catch(number_codes(N, Cs), _, fail), integer(N), !.
+host_id(H, H).

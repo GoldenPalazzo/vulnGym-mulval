@@ -175,6 +175,9 @@ venv.bak/
 .dmypy.json
 dmypy.json
 
+# pyright
+pyrightconfig.json
+
 # Pyre type checker
 .pyre/
 
@@ -221,3 +224,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# XSB / Datalog
+*.xwam
