@@ -1,0 +1,150 @@
+/* vulngym_rules.P
+   Regole aggiuntive che modellano in MulVAL la semantica di vulnGym.
+
+   COME SI CARICA: va CONCATENATO dopo kb/interaction_rules.P in running_rules.P
+   (come fa graph_gen.sh con l'opzione -a). NON caricarlo con un secondo load_dyn:
+   load_dyn sostituisce tutte le clausole dei predicati che il file definisce, quindi
+   cancellerebbe primitive/1, derived/1 e interaction_rule/2 delle regole originali.
+
+   Le regole originali di MulVAL restano intatte. I fatti che lo snapshot deve emettere sono:
+     originali MulVAL
+       attackerLocated(internet).
+       hacl(internet, N, any, any).          nodi di ingresso (starting_nodes, + phishing)
+       hacl(A, B, any, any).                 per ogni arco del grafo, in ENTRAMBI i versi
+       networkServiceInfo(H, Prod, any, any, user).   per ogni prodotto installato su H
+       vulExists(H, CVE, Prod).              vuln rivelata, non patchata, sfruttabile dall'APT
+       vulProperty(CVE, remoteExploit, privEscalation).   se 'remote_control' in action
+       vulProperty(CVE, remoteExploit, dos).              se 'dos' in action
+     nuovi (dichiarati qui sotto)
+       attackerHasAccess/1, exploitedVul/2, credentialsStolen/1,
+       dataExfiltrated/1, dataWiped/1, nodeOff/1
+*/
+
+/******************************************************/
+/****   Fatti di stato di vulnGym (primitivi)     *****/
+/******************************************************/
+
+primitive(attackerHasAccess(_host)).       % NetworkNode.attacker_has_access
+primitive(exploitedVul(_host, _vulID)).    % Vulnerability.exploited, non patchata, su un nodo con accesso
+primitive(credentialsStolen(_host)).       % NetworkNode.credentials_stolen (non si azzera mai nell'episodio)
+primitive(dataExfiltrated(_host)).         % NetworkNode.data_exfiltrated
+primitive(dataWiped(_host)).               % NetworkNode.is_wiped
+primitive(nodeOff(_host)).                 % NetworkNode.is_off
+
+/******************************************************/
+/****   Predicati derivati nuovi                  *****/
+/******************************************************/
+
+derived(remoteControl(_host)).             % controllo ottenuto con un EXPLOIT (abilita la post-exploitation)
+derived(hasCredentials(_host)).            % credenziali del nodo in mano all'attaccante
+derived(dataCompromised(_host)).           % goal data_exfiltration (EXFILTRATION o WIPER)
+/* dos/1 è già dichiarato derived in interaction_rules.P, ma lì nessuna regola lo deriva. */
+
+:- table remoteControl/1.
+:- table hasCredentials/1.
+:- table dataCompromised/1.
+:- table dos/1.
+
+/******************************************************/
+/****   Accesso e pivot                           *****/
+/******************************************************/
+
+/* Posizione attuale dell'attaccante: da qui può fare pivot verso i vicini
+   (DQNAttacker._select_target_node, fase PIVOT). Vale anche se la strada
+   per arrivarci è stata chiusa da patch a monte. */
+interaction_rule(
+  (execCode(H, user) :-
+	attackerHasAccess(H)),
+  rule_desc('current attacker foothold',
+  1.0)).
+
+/* Stesso corpo della regola MulVAL 'remote exploit of a server program', ma su un
+   predicato separato: in vulnGym solo un nodo preso con EXPLOIT su una vuln
+   remote_control offre le azioni di post-exploitation
+   (NetworkExplorationEnv._valid_post_actions_for_node). Un nodo preso con
+   LATERAL_MOVEMENT dà execCode ma NON remoteControl. */
+interaction_rule(
+  (remoteControl(H) :-
+	vulExists(H, _VulID, Software, remoteExploit, privEscalation),
+	networkServiceInfo(H, Software, Protocol, Port, _Perm),
+	netAccess(H, Protocol, Port)),
+  rule_desc('remote control through an exploitable vulnerability',
+  1.0)).
+
+/* Controllo già ottenuto: l'attaccante è sul nodo e la vuln sfruttata non è ancora
+   patchata (patch senza persistence toglie l'accesso: compute_defender_reward). */
+interaction_rule(
+  (remoteControl(H) :-
+	attackerHasAccess(H),
+	exploitedVul(H, VulID),
+	vulExists(H, VulID, _Software, remoteExploit, privEscalation)),
+  rule_desc('current foothold obtained through an exploit',
+  1.0)).
+
+/******************************************************/
+/****   Credenziali e lateral movement            *****/
+/******************************************************/
+
+interaction_rule(
+  (hasCredentials(H) :-
+	credentialsStolen(H)),
+  rule_desc('credentials already stolen',
+  1.0)).
+
+/* CREDENTIALS_THEFT è una post-exploitation: richiede remoteControl. */
+interaction_rule(
+  (hasCredentials(H) :-
+	remoteControl(H)),
+  rule_desc('credential theft on a remotely controlled host',
+  0.7)).
+
+/* LATERAL_MOVEMENT: verso qualunque vicino del nodo delle credenziali, senza CVE. */
+interaction_rule(
+  (execCode(H2, user) :-
+	hasCredentials(H1),
+	hacl(H1, H2, _Protocol, _Port)),
+  rule_desc('lateral movement with stolen credentials',
+  0.8)).
+
+/******************************************************/
+/****   Goal: data_exfiltration (APT41)           *****/
+/******************************************************/
+
+interaction_rule(
+  (dataCompromised(H) :-
+	dataExfiltrated(H)),
+  rule_desc('data already exfiltrated',
+  1.0)).
+
+interaction_rule(
+  (dataCompromised(H) :-
+	dataWiped(H)),
+  rule_desc('host already wiped',
+  1.0)).
+
+/* EXFILTRATION e WIPER sono post-exploitation: richiedono remoteControl. */
+interaction_rule(
+  (dataCompromised(H) :-
+	remoteControl(H)),
+  rule_desc('exfiltration or wiper on a remotely controlled host',
+  0.7)).
+
+/******************************************************/
+/****   Goal: db_denial_of_service (APT28)        *****/
+/******************************************************/
+
+interaction_rule(
+  (dos(H) :-
+	nodeOff(H)),
+  rule_desc('host already offline',
+  1.0)).
+
+/* DOS non richiede accesso al nodo: basta raggiungerlo in rete
+   (stessi candidati di EXPLOIT in _select_target_node). */
+interaction_rule(
+  (dos(H) :-
+	vulExists(H, _VulID, Software, remoteExploit, dos),
+	networkServiceInfo(H, Software, Protocol, Port, _Perm),
+	netAccess(H, Protocol, Port)),
+  rule_desc('remote denial of service of a server program',
+  1.0)).
